@@ -312,7 +312,11 @@ def do_cond_form(expressions, env):
             test = scheme_eval(clause.first, env)
         if scheme_truep(test):
             # BEGIN PROBLEM 14
-            "*** REPLACE THIS LINE ***"
+            if clause.second:
+                return eval_all(clause.second, env)
+            else:
+                return test
+            
             # END PROBLEM 14
         expressions = expressions.second
 
