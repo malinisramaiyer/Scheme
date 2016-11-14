@@ -108,7 +108,16 @@ class Frame:
         """
         child = Frame(self) # Create a new child with self as the parent
         # BEGIN PROBLEM 11
-        "*** REPLACE THIS LINE ***"
+        if len(formals) != len(vals):
+            raise SchemeError
+        else:
+            def make_define(formal, val):
+                if formal is nil:
+                    return
+                else:
+                    child.define(formal.first, val.first)
+                    make_define(formal.second, val.second)
+            make_define(formals, vals)
         # END PROBLEM 11
         return child
 
