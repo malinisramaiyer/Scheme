@@ -21,7 +21,7 @@ def scheme_eval(expr, env, _=None): # Optional third argument is ignored
     if scheme_symbolp(expr):
         return env.lookup(expr)
     elif self_evaluating(expr):
-        return expr
+        return expr3
 
     # All non-atomic expressions are lists (combinations)
     if not scheme_listp(expr):
@@ -51,12 +51,10 @@ def eval_all(expressions, env):
     # BEGIN PROBLEM 8
     if expressions is nil:
         return None
-    elif expressions.second is nil:
-        return scheme_eval(expressions.first, env)
-    else:
+    while expressions.second is not nil:
         scheme_eval(expressions.first, env)
-        return eval_all(expressions.second, env)
-
+        expressions = expressions.second
+    return scheme_eval(expressions.first, env, True)
     # END PROBLEM 8
 
 ################
@@ -91,9 +89,9 @@ class Frame:
         elif self.parent is not None:
             return Frame.lookup(self.parent, symbol)
         else:
-            raise SchemeError('unknown identifier: {0}'.format(symbol))    
+            raise SchemeError('unknown identifier: {0}'.format(symbol))  
         # END PROBLEM 3
-        
+        raise SchemeError('unknown identifier: {0}'.format(symbol))
 
     def make_child_frame(self, formals, vals):
         """Return a new local frame whose parent is SELF, in which the symbols
@@ -164,7 +162,6 @@ class PrimitiveProcedure(Procedure):
             return self.fn(*python_args)
         except TypeError as err:
             print('SchemeError')
-
         # END PROBLEM 4
 
 class UserDefinedProcedure(Procedure):
@@ -192,7 +189,6 @@ class LambdaProcedure(UserDefinedProcedure):
         of values, for a lexically-scoped call evaluated in environment ENV."""
         # BEGIN PROBLEM 12
         return self.env.make_child_frame(self.formals, args)
-
         # END PROBLEM 12
 
     def __str__(self):
@@ -233,7 +229,6 @@ def do_define_form(expressions, env):
         # BEGIN PROBLEM 10
         env.define(target.first, LambdaProcedure(target.second, expressions.second, env))
         return target.first
-        
         # END PROBLEM 10
     else:
         bad_target = target.first if isinstance(target, Pair) else target
@@ -264,38 +259,32 @@ def do_if_form(expressions, env):
     """Evaluate an if form."""
     check_form(expressions, 2, 3)
     if scheme_truep(scheme_eval(expressions.first, env)):
-        return scheme_eval(expressions.second.first, env)
+        return scheme_eval(expressions.second.first, env, True)
     elif len(expressions) == 3:
-        return scheme_eval(expressions.second.second.first, env)
+        return scheme_eval(expressions.second.second.first, env, True)
 
 def do_and_form(expressions, env):
     """Evaluate a short-circuited and form."""
     # BEGIN PROBLEM 13
-
-    # evaluates and saves return value
-    if expressions is not nil:
-        evaluated = scheme_eval(expressions.first, env)
     if expressions is nil:
         return True
-    elif scheme_truep(evaluated) and expressions.second is nil:
-        return evaluated
-    elif scheme_falsep(evaluated):
-        return evaluated
-    else:
-        return do_and_form(expressions.second, env)
+    while expressions.second is not nil:
+        if scheme_falsep(scheme_eval(expressions.first, env)): 
+            return scheme_eval(expressions.first, env)
+        expressions = expressions.second
+    return scheme_eval(expressions.first, env, True)
     # END PROBLEM 13
 
 def do_or_form(expressions, env):
     """Evaluate a short-circuited or form."""
     # BEGIN PROBLEM 13
-    if expressions is not nil:
-        evaluated = scheme_eval(expressions.first, env)
     if expressions is nil:
         return False
-    elif scheme_truep(evaluated):
-        return evaluated
-    else:
-        return do_or_form(expressions.second, env)
+    while expressions.second is not nil:
+        if scheme_truep(scheme_eval(expressions.first, env)): 
+            return scheme_eval(expressions.first, env)
+        expressions = expressions.second
+    return scheme_eval(expressions.first, env, True)
 
     # END PROBLEM 13
 
@@ -312,11 +301,10 @@ def do_cond_form(expressions, env):
             test = scheme_eval(clause.first, env)
         if scheme_truep(test):
             # BEGIN PROBLEM 14
-            if clause.second:
-                return eval_all(clause.second, env)
-            else:
+            if clause.second is nil:
                 return test
-            
+            else:
+                return eval_all(clause.second, env)
             # END PROBLEM 14
         expressions = expressions.second
 
@@ -334,14 +322,11 @@ def make_let_frame(bindings, env):
     if not scheme_listp(bindings):
         raise SchemeError('bad bindings list in let form')
     # BEGIN PROBLEM 15
-    params, vals = nil, nil 
-    check_form(bindings.first.second, 1, 1)
-    while bindings is not nil:
-        params = Pair(bindings.first.first, params)
-        vals = Pair(eval_all(bindings.first.second, env), vals)
-        bindings = bindings.second
-    check_formals(params)
-    return env.make_child_frame(params, vals)
+    bindings.map(lambda x: check_form(x, 2, 2))
+    check_formals(bindings.map(lambda x: x.first))
+    first = Pair.map(bindings, lambda x: x.first)
+    second = Pair.map(Pair.map(bindings, lambda x: x.second.first), lambda x: scheme_eval(x, env))
+    return env.make_child_frame(first, second)
     # END PROBLEM 15
 
 SPECIAL_FORMS = {
@@ -421,9 +406,6 @@ class MuProcedure(UserDefinedProcedure):
 
     # BEGIN PROBLEM 16
     def make_call_frame(self, args, env):
-        """Make a frame that binds the formal parameters to ARGS, a Scheme list
-        of values, for a dynamically-scoped call in which the call expression is
-        evaluated in environment ENV"""
         return env.make_child_frame(self.formals, args)
     # END PROBLEM 16
 
@@ -507,10 +489,9 @@ def scheme_optimized_eval(expr, env, tail=False):
         return env.lookup(expr)
     elif self_evaluating(expr):
         return expr
-
     if tail:
         # BEGIN Extra Credit
-        "*** REPLACE THIS LINE ***"
+        return Thunk(expr, env)
         # END Extra Credit
     else:
         result = Thunk(expr, env)
@@ -525,14 +506,18 @@ def scheme_optimized_eval(expr, env, tail=False):
             result = SPECIAL_FORMS[first](rest, env)
         else:
             # BEGIN Extra Credit
-            "*** REPLACE THIS LINE ***"
+            f = scheme_optimized_eval(first, env)
+            check_procedure(f)
+            eval_env = lambda operands: scheme_optimized_eval(operands, env)
+            args = rest.map(eval_env)
+            result = scheme_apply(f, args, env)
             # END Extra Credit
     return result
 
 ################################################################
 # Uncomment the following line to apply tail call optimization #
 ################################################################
-# scheme_eval = scheme_optimized_eval
+scheme_eval = scheme_optimized_eval
 
 
 ################
